@@ -1,15 +1,43 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import "./App.css";
 
-// ✅ Socket.IO version
+// ====== Constants ======
 const DEFAULT_API = "http://localhost:8787/push";
-// Với Socket.IO bạn chỉ cần base URL + path (không dùng ws://)
 const DEFAULT_SIO = "http://localhost:8787";
 const DEFAULT_SIO_PATH = "/ws";
-
 const DEFAULT_GAS_EXPORT =
   "https://script.google.com/macros/s/AKfycbyS3h4Ci958a33mz2tWopo02R1jwQvZaUQrezmT6AzsaqkCc0NkLm4CxPJU_o2lklZo/exec";
+
+// ====== MUI ======
+import {
+  ThemeProvider,
+  createTheme,
+  CssBaseline,
+  Container,
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Chip,
+  Divider,
+  Stack,
+  Grid,
+  Card,
+  CardContent,
+} from "@mui/material";
+
+// Dark theme nhẹ nhàng
+const theme = createTheme({
+  palette: {
+    mode: "dark",
+    primary: { main: "#4da3ff" },
+    background: { default: "#0b1020", paper: "#121831" },
+    success: { main: "#27c093" },
+    error: { main: "#ff6b6b" },
+  },
+  shape: { borderRadius: 12 },
+});
 
 export default function VanGPTApp({
   apiUrl = DEFAULT_API,
@@ -35,7 +63,7 @@ export default function VanGPTApp({
   const isOk = status === "ready" || status.startsWith("SIO connected");
   const showStatus = (text, ok = true) => setStatus(ok ? text || "ready" : text || "error");
   const setCurrentId = (id) => (currentIdRef.current = id || "");
-  const safeFilename = (name) => name.replace(/[^a-z0-9\-_.]/gi, "_");
+  const safeFilename = (name) => name.replace(/[^a-z0-9\\-_.]/gi, "_");
 
   const collectChatAsText = () => chat.map((m) => `${m.role}: ${m.text}`).join("\n");
   const addMsg = (role, text, id) => setChat((prev) => [...prev, { role, text, id }]);
@@ -46,7 +74,7 @@ export default function VanGPTApp({
     });
   };
 
-  // ====== HTTP push helper (giữ nguyên) ======
+  // ====== HTTP push helper ======
   const callPush = async (payload) => {
     setLoading(true);
     try {
@@ -84,13 +112,17 @@ export default function VanGPTApp({
     setPrompt("");
 
     const payload = { id, type: "ask_block", prompt: p };
-    await callPush(payload); // server sẽ phát lệnh qua Socket.IO tới extension
+    await callPush(payload);
   };
 
   const onGetLast = async () => {
     const id = (reqId || ``).trim() || `last-${Date.now()}`;
     setCurrentId(id);
-    const payload = { id, type: "get_last_after", anchors: anchors.split("|").map(s => s.trim()).filter(Boolean) };
+    const payload = {
+      id,
+      type: "get_last_after",
+      anchors: anchors.split("|").map((s) => s.trim()).filter(Boolean),
+    };
     await callPush(payload);
   };
 
@@ -129,17 +161,24 @@ export default function VanGPTApp({
       } else if (ct.startsWith("text/")) {
         const txt = await res.text();
         setRaw(txt);
-        try { data = JSON.parse(txt); } catch { }
+        try {
+          data = JSON.parse(txt);
+        } catch { }
       } else if (ct.startsWith("application/pdf")) {
         const blob = await res.blob();
-        const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.pdf`;
+        const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date()
+          .toISOString()
+          .slice(0, 19)
+          .replace(/[:T]/g, "-")}.pdf`;
         triggerDownload(blob, fname);
         showStatus("Đã tải PDF");
         return;
       } else {
         const txt = await res.text();
         setRaw(txt);
-        try { data = JSON.parse(txt); } catch { }
+        try {
+          data = JSON.parse(txt);
+        } catch { }
       }
 
       if (data?.pdf_base64) {
@@ -148,7 +187,10 @@ export default function VanGPTApp({
         for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
         const byteArray = new Uint8Array(byteNums);
         const blob = new Blob([byteArray], { type: "application/pdf" });
-        const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.pdf`;
+        const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date()
+          .toISOString()
+          .slice(0, 19)
+          .replace(/[:T]/g, "-")}.pdf`;
         triggerDownload(blob, fname);
         showStatus("Đã tải PDF từ base64");
       } else if (data?.pdfUrl) {
@@ -180,15 +222,16 @@ export default function VanGPTApp({
     try {
       const socket = io(sioUrl, {
         path: sioPath,
-        transports: ["websocket"], // ưu tiên websocket
+        transports: ["websocket"],
       });
       socketRef.current = socket;
 
       socket.on("connect", () => showStatus("SIO connected"));
-      socket.on("connect_error", (err) => showStatus(`SIO connect_error: ${err?.message || err}`, false));
+      socket.on("connect_error", (err) =>
+        showStatus(`SIO connect_error: ${err?.message || err}`, false)
+      );
       socket.on("disconnect", () => showStatus("SIO disconnected", false));
 
-      // Nhận kết quả server phát (sau khi extension xử lý xong & emit client_result)
       socket.on("push_result", (msg) => {
         try {
           lastMsgByIdRef.current[msg.id] = msg;
@@ -206,124 +249,198 @@ export default function VanGPTApp({
         } catch { }
       });
 
-      // (tùy chọn) nếu server có emit message khác
-      // socket.on("server_push", (payload) => { ... });
-
       return () => {
-        try { socket.off("push_result"); socket.disconnect(); } catch { }
+        try {
+          socket.off("push_result");
+          socket.disconnect();
+        } catch { }
       };
     } catch (e) {
       showStatus(String(e), false);
     }
   }, [sioUrl, sioPath]);
 
-  // Optional: ping Export API (giữ nguyên)
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(exportUrl, {
-          method: "POST",
-          headers: {
-            "content-type": "text/plain; charset=utf-8",
-            accept: "application/json, text/plain;q=0.9, */*;q=0.5",
-          },
-          body: "ping",
-        });
-        if (res.ok) {
-          const ct = res.headers.get("content-type") || "";
-          if (ct.startsWith("text/")) {
-            const t = await res.text();
-            setRaw(t);
-          } else {
-            setRaw(`Đã kết nối API Export (content-type: ${ct})`);
-          }
-        } else {
-          setRaw(`Export API HTTP ${res.status}`);
-        }
-      } catch (e) {
-        setRaw(String(e));
-      }
-    })();
-  }, [exportUrl]);
-
-  // ====== Render ======
+  // ====== Render (MUI) ======
+  // ====== Render (MUI) ======
   return (
-    <div className="app-root" style={{ display: "grid", placeItems: "center", minHeight: "100dvh", background: "var(--bg)", color: "#eaf0ff" }}>
-      <div className="wrap">
-        <h1>
-          Văn GPT
-          <span id="serverState" className={`pill${isOk ? "" : " err"}`} style={{ marginLeft: 8 }}>
-            {isOk ? "ready" : "error"}
-          </span>
-        </h1>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box
+        sx={{
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          bgcolor: "background.default",
+        }}
+      >
+        <Container>
+          <Stack spacing={3}>
+            {/* Header */}
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Typography variant="h4" fontWeight={700}>
+                Văn GPT
+              </Typography>
+              <Chip
+                label={isOk ? "ready" : "error"}
+                color={isOk ? "success" : "error"}
+                size="small"
+                sx={{ ml: 1, fontWeight: 700 }}
+              />
+              <Box flex={1} />
+              <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                Server: {apiUrl}
+              </Typography>
+            </Stack>
 
-        {/* Chat khung */}
-        <section className="card chat-panel" id="chat">
-          {chat.map((m, i) => (
-            <div key={i} className={`msg ${m.role}`} data-id={m.id || undefined}>
-              {m.text}
-            </div>
-          ))}
-        </section>
-
-        {/* Form điều khiển */}
-        <section className="card toolbar">
-          <div className="col">
-            <label htmlFor="prompt">Nội dung (prompt) — Enter để gửi, Shift+Enter xuống dòng</label>
-            <textarea
-              id="prompt"
-              placeholder="Viết 3 bữa ăn healthy dạng markdown."
-              value={prompt}
-              disabled={loading}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onSend();
-                }
+            {/* Chat panel */}
+            <Paper
+              elevation={6}
+              sx={{
+                p: 2,
+                height: "60vh",
+                overflow: "auto",
+                display: "flex",
+                flexDirection: "column",
               }}
-            />
-          </div>
+            >
+              <Stack spacing={1.5} flexGrow={1}>
+                {chat.map((m, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      alignSelf: m.role === "me" ? "flex-end" : "flex-start",
+                      maxWidth: "80%",
+                    }}
+                  >
+                    <Card
+                      variant="outlined"
+                      sx={{
+                        bgcolor:
+                          m.role === "me"
+                            ? "rgba(33,49,86,.6)"
+                            : "rgba(24,38,71,.6)",
+                        borderColor: "rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      <CardContent sx={{ py: 1.25 }}>
+                        <Typography variant="body2" whiteSpace="pre-wrap">
+                          {m.text}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Box>
+                ))}
+              </Stack>
+            </Paper>
 
-          <div className="row">
-            <div className="col" style={{ flex: 2 }}>
-              <label htmlFor="anchors">Anchors (cho get_last_after, phân tách bằng dấu “|”)</label>
-              <input
-                id="anchors"
-                type="text"
-                value={anchors}
-                disabled={loading}
-                onChange={(e) => setAnchors(e.target.value)}
-              />
-            </div>
-            <div className="col" style={{ flex: 1 }}>
-              <label htmlFor="reqId">Request ID (tùy chọn)</label>
-              <input
-                id="reqId"
-                type="text"
-                placeholder="vd: job-001"
-                value={reqId}
-                disabled={loading}
-                onChange={(e) => setReqId(e.target.value)}
-              />
-            </div>
-          </div>
+            {/* Toolbar */}
+            <Paper elevation={6} sx={{ p: 3 }}>
+              {/* Toolbar */}
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
+                    Nội dung (prompt) — Enter để gửi, Shift+Enter xuống dòng
+                  </Typography>
+                  <TextField
+                    placeholder="Viết 3 bữa ăn healthy dạng markdown."
+                    fullWidth
+                    multiline
+                    minRows={4}
+                    value={prompt}
+                    disabled={loading}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        onSend();
+                      }
+                    }}
+                  />
+                </Box>
 
-          <div className="row">
-            <button id="btnSend" className="btn" disabled={loading} onClick={onSend}>Gửi</button>
-            <button id="btnGetLast" className="btn secondary" disabled={loading} onClick={onGetLast}>Lấy kết quả</button>
-            <button id="btnPdf" className="btn ghost" title="Gửi text và tải về PDF" disabled={loading} onClick={onPdfDownload}>PDF download</button>
-            <div id="status" className="status" style={{ marginLeft: 12 }}>{status}</div>
-          </div>
+                <Grid container spacing={2}>
+                  <Grid item xs={8}>
+                    <TextField
+                      label="Anchors (get_last_after, phân tách “|”)"
+                      fullWidth
+                      value={anchors}
+                      disabled={loading}
+                      onChange={(e) => setAnchors(e.target.value)}
+                    />
+                  </Grid>
+                  <Grid item xs={4}>
+                    <TextField
+                      label="Request ID (tùy chọn)"
+                      placeholder="vd: job-001"
+                      fullWidth
+                      value={reqId}
+                      disabled={loading}
+                      onChange={(e) => setReqId(e.target.value)}
+                    />
+                  </Grid>
+                </Grid>
 
-          <div className="col">
-            <div className="meta">Phản hồi thô:</div>
-            <pre id="raw" className="json">{raw}</pre>
-          </div>
-        </section>
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Button
+                    variant="contained"
+                    disableElevation
+                    disabled={loading}
+                    onClick={onSend}
+                  >
+                    Gửi
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    disabled={loading}
+                    onClick={onGetLast}
+                  >
+                    Lấy kết quả
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    disabled={loading}
+                    onClick={onPdfDownload}
+                  >
+                    PDF download
+                  </Button>
+                  <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    {status}
+                  </Typography>
+                </Stack>
 
-        <footer>Server mặc định: <code>{apiUrl}</code></footer>
-      </div>
-    </div>
+                <Box>
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    Phản hồi thô
+                  </Typography>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      mt: 0.5,
+                      p: 1.25,
+                      fontFamily:
+                        'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+                      fontSize: 12,
+                      color: "#cfe2ff",
+                      maxHeight: 220,
+                      overflow: "auto",
+                      bgcolor: "rgba(15,21,48,.6)",
+                      borderColor: "rgba(255,255,255,0.12)",
+                    }}
+                  >
+                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {raw}
+                    </pre>
+                  </Paper>
+                </Box>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Container>
+      </Box>
+    </ThemeProvider>
   );
+
 }
