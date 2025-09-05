@@ -23,6 +23,10 @@ const DEFAULT_SIO_PATH = "/ws";
 const DEFAULT_GAS_EXPORT =
   "https://script.google.com/macros/s/AKfycbyS3h4Ci958a33mz2tWopo02R1jwQvZaUQrezmT6AzsaqkCc0NkLm4CxPJU_o2lklZo/exec";
 
+const DEFAULT_MESSAGES_API = "http://localhost:8787/conversations/1/messages";
+
+
+
 export default function App({
   apiUrl = DEFAULT_API,
   sioUrl = DEFAULT_SIO,
@@ -31,7 +35,7 @@ export default function App({
 }) {
   // ====== UI State ======
   const [chat, setChat] = useState([]); // [{id?, role: 'me'|'bot', text}]
-  const [prompt, setPrompt] = useState("Viết 3 bữa ăn healthy dạng markdown.");
+  const [prompt, setPrompt] = useState("");
   const [anchors, setAnchors] = useState("tôi đã nói|bạn đã nói|chatgpt đã nói|you said");
   const [reqId, setReqId] = useState("");
   const [status, setStatus] = useState("ready");
@@ -43,6 +47,9 @@ export default function App({
   const currentIdRef = useRef("");
   const lastMsgByIdRef = useRef({});
   const seenRef = useRef(new Set()); // de-dupe displayed push_result events
+  const flushTimersRef = useRef(new Map()); // NEW: map id -> timeout
+  const bufferedTextRef = useRef(new Map()); // NEW: map id -> last text
+
 
   const isOk = status === "ready" || status.startsWith("SIO connected");
   const showStatus = useCallback((text, ok = true) => setStatus(ok ? text || "ready" : text || "error"), []);
@@ -56,6 +63,24 @@ export default function App({
       return [...filtered, { role: "bot", text, id }];
     });
   };
+
+  const flushBotById = useCallback((id) => {
+    const msg = lastMsgByIdRef.current[id];
+    if (!msg) return;
+
+    const text = String(msg.text || "").replace("ChatGPT said", "VanGPT said");
+    if (!text) return;
+
+    setChat((prev) => {
+      const existed = prev.some((m) => m.role === "bot" && m.id === id);
+      if (existed) {
+        const filtered = prev.filter((m) => !(m.role === "bot" && m.id === id));
+        return [...filtered, { role: "bot", text, id }];
+      }
+      return [...prev, { role: "bot", text, id }];
+    });
+  }, []);
+
 
   const progress = useFakeProgress({
     onDone: () => {
@@ -103,7 +128,7 @@ export default function App({
     addMsg("me", p, id);
     setPrompt("");
 
-    const payload = { id, type: "ask_block", prompt: p };
+    const payload = { id, type: "ask_block", prompt: p, correlation_id: Date.now() };
     await callPush(payload);
   };
 
@@ -202,34 +227,75 @@ export default function App({
   };
 
   // ====== Socket.IO (thay cho WebSocket) ======
+  // const onPushResult = useCallback((msg) => {
+  //   try {
+  //     lastMsgByIdRef.current[msg.id] = msg;
+  //     // Hiển thị lên panel "Phản hồi thô"
+  //     setRaw(JSON.stringify(lastMsgByIdRef.current[msg.id], null, 2));
+
+  //     // De-dupe theo id + text
+  //     const key = msg.id + "::" + (msg.text || "");
+  //     if (seenRef.current.has(key)) return;
+  //     seenRef.current.add(key);
+  //     setTimeout(() => seenRef.current.delete(key), 60000);
+
+  //     if (msg.text) {
+  //       const text = String(msg.text).replace("ChatGPT said", "VanGPT said");
+  //       // Nếu đã có bot message với cùng id thì replace, còn không thì thêm mới
+  //       // Ở đây dùng replace để giữ nguyên UX cũ
+  //       // Nếu muốn “thêm dòng mới” mỗi lần, có thể đổi thành addMsg("bot", text, msg.id)
+  //       // và xóa logic filter trong replaceBotMsgById
+  //       setChat((prev) => {
+  //         const existed = prev.some((m) => m.role === "bot" && m.id === msg.id);
+  //         if (existed) {
+  //           const filtered = prev.filter((m) => !(m.role === "bot" && m.id === msg.id));
+  //           return [...filtered, { role: "bot", text, id: msg.id }];
+  //         }
+  //         return [...prev, { role: "bot", text, id: msg.id }];
+  //       });
+  //     }
+  //   } catch { }
+  // }, []);
+
+  // Fetch
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`${DEFAULT_MESSAGES_API}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'Fetch messages failed');
+      // Map về format ChatPanel đang dùng: role 'me'|'bot'
+      const mapped = (json.messages || []).map(m => ({
+        id: m._id,
+        role: m.role === 'assistant' ? 'bot' : 'me',
+        text: m.content || '',
+      }));
+      setChat(mapped);
+    } catch (e) {
+      showStatus(String(e.message || e), false);
+    }
+  }, [showStatus]);
+
+
   const onPushResult = useCallback((msg) => {
     try {
       lastMsgByIdRef.current[msg.id] = msg;
-      // Hiển thị lên panel "Phản hồi thô"
       setRaw(JSON.stringify(lastMsgByIdRef.current[msg.id], null, 2));
 
-      // De-dupe theo id + text
+      // De-dupe theo id+text để tránh spam fetch nếu server emit nhiều lần giống nhau
       const key = msg.id + "::" + (msg.text || "");
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
-      setTimeout(() => seenRef.current.delete(key), 60000);
+      setTimeout(() => seenRef.current.delete(key), 3000); // ngắn hơn vì ta sẽ fetch messages
 
-      if (msg.text) {
-        const text = String(msg.text).replace("ChatGPT said", "VanGPT said");
-        // Nếu đã có bot message với cùng id thì replace, còn không thì thêm mới
-        // Ở đây dùng replace để giữ nguyên UX cũ
-        // Nếu muốn “thêm dòng mới” mỗi lần, có thể đổi thành addMsg("bot", text, msg.id)
-        // và xóa logic filter trong replaceBotMsgById
-        setChat((prev) => {
-          const existed = prev.some((m) => m.role === "bot" && m.id === msg.id);
-          if (existed) {
-            const filtered = prev.filter((m) => !(m.role === "bot" && m.id === msg.id));
-            return [...filtered, { role: "bot", text, id: msg.id }];
-          }
-          return [...prev, { role: "bot", text, id: msg.id }];
-        });
-      }
+      // === Điểm thay đổi chính:
+      // Mỗi lần có push_result -> fetch toàn bộ messages của conversation và render
+      fetchMessages();
     } catch { }
+  }, [fetchMessages]);
+
+  useEffect(() => {
+    fetchMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useSocketIO({
