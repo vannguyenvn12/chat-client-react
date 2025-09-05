@@ -13,6 +13,8 @@ import ChatPanel from "./components/ChatPanel";
 import Toolbar from "./components/Toolbar";
 import useSocketIO from "./hooks/useSocketIO";
 import { triggerDownload, safeFilename } from "./utils/download";
+import ProgressDialog from "./components/ProgressDialog";
+import useFakeProgress from "./hooks/useFakeProgress";
 
 // ====== Constants ======
 const DEFAULT_API = "http://localhost:8787/push";
@@ -35,6 +37,7 @@ export default function App({
   const [status, setStatus] = useState("ready");
   const [raw, setRaw] = useState("{}");
   const [loading, setLoading] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
 
   // ====== Runtime refs ======
   const currentIdRef = useRef("");
@@ -53,6 +56,15 @@ export default function App({
       return [...filtered, { role: "bot", text, id }];
     });
   };
+
+  const progress = useFakeProgress({
+    onDone: () => {
+      setProgressOpen(false);
+      progress.reset(); // về 0 để lần sau dùng lại
+    },
+    ceiling: 90,   // tối đa tự chạy đến 90%
+    tickMs: 120,   // 120ms/tick
+  });
 
   // ====== HTTP push helper ======
   const callPush = async (payload) => {
@@ -125,6 +137,8 @@ export default function App({
     }
     setLoading(true);
     showStatus("Đang tạo PDF...");
+    setProgressOpen(true);
+    progress.start();
     try {
       const res = await postText(exportUrl, text);
       if (!res.ok) {
@@ -150,6 +164,7 @@ export default function App({
           .replace(/[:T]/g, "-")}.pdf`;
         triggerDownload(blob, fname);
         showStatus("Đã tải PDF");
+        progress.finish();
         return;
       } else {
         const txt = await res.text();
@@ -169,14 +184,18 @@ export default function App({
           .replace(/[:T]/g, "-")}.pdf`;
         triggerDownload(blob, fname);
         showStatus("Đã tải PDF từ base64");
+        progress.finish();
       } else if (data?.pdfUrl) {
         window.open(data.pdfUrl, "_blank", "noopener");
         showStatus("Đã mở link PDF");
+        progress.finish();
       } else {
         showStatus("Không tìm thấy pdf_base64/pdfUrl trong phản hồi", false);
+        progress.finish();
       }
     } catch (e) {
       showStatus(String(e), false);
+      progress.finish();
     } finally {
       setLoading(false);
     }
@@ -253,6 +272,12 @@ export default function App({
             />
           </Stack>
         </Container>
+
+        <ProgressDialog
+          open={progressOpen}
+          progress={progress.value}
+          note="Nghe nè bạn tôi ơi, vui lòng đứng yên, đừng đi đâu cả. Tôi đang tải File cho bạn đấy!."
+        />
       </Box>
     </ThemeProvider>
   );
