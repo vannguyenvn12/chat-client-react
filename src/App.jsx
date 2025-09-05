@@ -1,5 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
+import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  ThemeProvider,
+  CssBaseline,
+  Container,
+  Box,
+  Stack,
+} from "@mui/material";
+
+import theme from "./theme";
+import HeaderBar from "./components/HeaderBar";
+import ChatPanel from "./components/ChatPanel";
+import Toolbar from "./components/Toolbar";
+import useSocketIO from "./hooks/useSocketIO";
+import { triggerDownload, safeFilename } from "./utils/download";
 
 // ====== Constants ======
 const DEFAULT_API = "http://localhost:8787/push";
@@ -8,38 +21,7 @@ const DEFAULT_SIO_PATH = "/ws";
 const DEFAULT_GAS_EXPORT =
   "https://script.google.com/macros/s/AKfycbyS3h4Ci958a33mz2tWopo02R1jwQvZaUQrezmT6AzsaqkCc0NkLm4CxPJU_o2lklZo/exec";
 
-// ====== MUI ======
-import {
-  ThemeProvider,
-  createTheme,
-  CssBaseline,
-  Container,
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  Chip,
-  Divider,
-  Stack,
-  Grid,
-  Card,
-  CardContent,
-} from "@mui/material";
-
-// Dark theme nhẹ nhàng
-const theme = createTheme({
-  palette: {
-    mode: "dark",
-    primary: { main: "#4da3ff" },
-    background: { default: "#0b1020", paper: "#121831" },
-    success: { main: "#27c093" },
-    error: { main: "#ff6b6b" },
-  },
-  shape: { borderRadius: 12 },
-});
-
-export default function VanGPTApp({
+export default function App({
   apiUrl = DEFAULT_API,
   sioUrl = DEFAULT_SIO,
   sioPath = DEFAULT_SIO_PATH,
@@ -57,13 +39,11 @@ export default function VanGPTApp({
   // ====== Runtime refs ======
   const currentIdRef = useRef("");
   const lastMsgByIdRef = useRef({});
-  const socketRef = useRef(null);
   const seenRef = useRef(new Set()); // de-dupe displayed push_result events
 
   const isOk = status === "ready" || status.startsWith("SIO connected");
-  const showStatus = (text, ok = true) => setStatus(ok ? text || "ready" : text || "error");
+  const showStatus = useCallback((text, ok = true) => setStatus(ok ? text || "ready" : text || "error"), []);
   const setCurrentId = (id) => (currentIdRef.current = id || "");
-  const safeFilename = (name) => name.replace(/[^a-z0-9\\-_.]/gi, "_");
 
   const collectChatAsText = () => chat.map((m) => `${m.role}: ${m.text}`).join("\n");
   const addMsg = (role, text, id) => setChat((prev) => [...prev, { role, text, id }]);
@@ -161,9 +141,7 @@ export default function VanGPTApp({
       } else if (ct.startsWith("text/")) {
         const txt = await res.text();
         setRaw(txt);
-        try {
-          data = JSON.parse(txt);
-        } catch { }
+        try { data = JSON.parse(txt); } catch { }
       } else if (ct.startsWith("application/pdf")) {
         const blob = await res.blob();
         const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date()
@@ -176,9 +154,7 @@ export default function VanGPTApp({
       } else {
         const txt = await res.text();
         setRaw(txt);
-        try {
-          data = JSON.parse(txt);
-        } catch { }
+        try { data = JSON.parse(txt); } catch { }
       }
 
       if (data?.pdf_base64) {
@@ -206,62 +182,45 @@ export default function VanGPTApp({
     }
   };
 
-  const triggerDownload = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
   // ====== Socket.IO (thay cho WebSocket) ======
-  useEffect(() => {
+  const onPushResult = useCallback((msg) => {
     try {
-      const socket = io(sioUrl, {
-        path: sioPath,
-        transports: ["websocket"],
-      });
-      socketRef.current = socket;
+      lastMsgByIdRef.current[msg.id] = msg;
+      // Hiển thị lên panel "Phản hồi thô"
+      setRaw(JSON.stringify(lastMsgByIdRef.current[msg.id], null, 2));
 
-      socket.on("connect", () => showStatus("SIO connected"));
-      socket.on("connect_error", (err) =>
-        showStatus(`SIO connect_error: ${err?.message || err}`, false)
-      );
-      socket.on("disconnect", () => showStatus("SIO disconnected", false));
+      // De-dupe theo id + text
+      const key = msg.id + "::" + (msg.text || "");
+      if (seenRef.current.has(key)) return;
+      seenRef.current.add(key);
+      setTimeout(() => seenRef.current.delete(key), 60000);
 
-      socket.on("push_result", (msg) => {
-        try {
-          lastMsgByIdRef.current[msg.id] = msg;
-          setRaw(JSON.stringify(lastMsgByIdRef.current[msg.id], null, 2));
-
-          const key = msg.id + "::" + (msg.text || "");
-          if (seenRef.current.has(key)) return;
-          seenRef.current.add(key);
-          setTimeout(() => seenRef.current.delete(key), 60000);
-
-          if (msg.text) {
-            const text = String(msg.text).replace("ChatGPT said", "VanGPT said");
-            replaceBotMsgById(msg.id, text);
+      if (msg.text) {
+        const text = String(msg.text).replace("ChatGPT said", "VanGPT said");
+        // Nếu đã có bot message với cùng id thì replace, còn không thì thêm mới
+        // Ở đây dùng replace để giữ nguyên UX cũ
+        // Nếu muốn “thêm dòng mới” mỗi lần, có thể đổi thành addMsg("bot", text, msg.id)
+        // và xóa logic filter trong replaceBotMsgById
+        setChat((prev) => {
+          const existed = prev.some((m) => m.role === "bot" && m.id === msg.id);
+          if (existed) {
+            const filtered = prev.filter((m) => !(m.role === "bot" && m.id === msg.id));
+            return [...filtered, { role: "bot", text, id: msg.id }];
           }
-        } catch { }
-      });
+          return [...prev, { role: "bot", text, id: msg.id }];
+        });
+      }
+    } catch { }
+  }, []);
 
-      return () => {
-        try {
-          socket.off("push_result");
-          socket.disconnect();
-        } catch { }
-      };
-    } catch (e) {
-      showStatus(String(e), false);
-    }
-  }, [sioUrl, sioPath]);
+  useSocketIO({
+    sioUrl,
+    sioPath,
+    onStatus: showStatus,
+    onPushResult,
+  });
 
-  // ====== Render (MUI) ======
-  // ====== Render (MUI) ======
+  // ====== Render ======
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -276,171 +235,25 @@ export default function VanGPTApp({
       >
         <Container>
           <Stack spacing={3}>
-            {/* Header */}
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Typography variant="h4" fontWeight={700}>
-                Văn GPT
-              </Typography>
-              <Chip
-                label={isOk ? "ready" : "error"}
-                color={isOk ? "success" : "error"}
-                size="small"
-                sx={{ ml: 1, fontWeight: 700 }}
-              />
-              <Box flex={1} />
-              <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                Server: {apiUrl}
-              </Typography>
-            </Stack>
-
-            {/* Chat panel */}
-            <Paper
-              elevation={6}
-              sx={{
-                p: 2,
-                height: "60vh",
-                overflow: "auto",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <Stack spacing={1.5} flexGrow={1}>
-                {chat.map((m, i) => (
-                  <Box
-                    key={i}
-                    sx={{
-                      alignSelf: m.role === "me" ? "flex-end" : "flex-start",
-                      maxWidth: "80%",
-                    }}
-                  >
-                    <Card
-                      variant="outlined"
-                      sx={{
-                        bgcolor:
-                          m.role === "me"
-                            ? "rgba(33,49,86,.6)"
-                            : "rgba(24,38,71,.6)",
-                        borderColor: "rgba(255,255,255,0.12)",
-                      }}
-                    >
-                      <CardContent sx={{ py: 1.25 }}>
-                        <Typography variant="body2" whiteSpace="pre-wrap">
-                          {m.text}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Box>
-                ))}
-              </Stack>
-            </Paper>
-
-            {/* Toolbar */}
-            <Paper elevation={6} sx={{ p: 3 }}>
-              {/* Toolbar */}
-              <Stack spacing={2}>
-                <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
-                    Nội dung (prompt) — Enter để gửi, Shift+Enter xuống dòng
-                  </Typography>
-                  <TextField
-                    placeholder="Viết 3 bữa ăn healthy dạng markdown."
-                    fullWidth
-                    multiline
-                    minRows={4}
-                    value={prompt}
-                    disabled={loading}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        onSend();
-                      }
-                    }}
-                  />
-                </Box>
-
-                <Grid container spacing={2}>
-                  <Grid item xs={8}>
-                    <TextField
-                      label="Anchors (get_last_after, phân tách “|”)"
-                      fullWidth
-                      value={anchors}
-                      disabled={loading}
-                      onChange={(e) => setAnchors(e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={4}>
-                    <TextField
-                      label="Request ID (tùy chọn)"
-                      placeholder="vd: job-001"
-                      fullWidth
-                      value={reqId}
-                      disabled={loading}
-                      onChange={(e) => setReqId(e.target.value)}
-                    />
-                  </Grid>
-                </Grid>
-
-                <Stack direction="row" spacing={1.5} alignItems="center">
-                  <Button
-                    variant="contained"
-                    disableElevation
-                    disabled={loading}
-                    onClick={onSend}
-                  >
-                    Gửi
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    disabled={loading}
-                    onClick={onGetLast}
-                  >
-                    Lấy kết quả
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    color="secondary"
-                    disabled={loading}
-                    onClick={onPdfDownload}
-                  >
-                    PDF download
-                  </Button>
-                  <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
-                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                    {status}
-                  </Typography>
-                </Stack>
-
-                <Box>
-                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                    Phản hồi thô
-                  </Typography>
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      mt: 0.5,
-                      p: 1.25,
-                      fontFamily:
-                        'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
-                      fontSize: 12,
-                      color: "#cfe2ff",
-                      maxHeight: 220,
-                      overflow: "auto",
-                      bgcolor: "rgba(15,21,48,.6)",
-                      borderColor: "rgba(255,255,255,0.12)",
-                    }}
-                  >
-                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                      {raw}
-                    </pre>
-                  </Paper>
-                </Box>
-              </Stack>
-            </Paper>
+            <HeaderBar apiUrl={apiUrl} isOk={isOk} />
+            <ChatPanel chat={chat} />
+            <Toolbar
+              loading={loading}
+              prompt={prompt}
+              setPrompt={setPrompt}
+              anchors={anchors}
+              setAnchors={setAnchors}
+              reqId={reqId}
+              setReqId={setReqId}
+              onSend={onSend}
+              onGetLast={onGetLast}
+              onPdfDownload={onPdfDownload}
+              status={status}
+              raw={raw}
+            />
           </Stack>
         </Container>
       </Box>
     </ThemeProvider>
   );
-
 }
