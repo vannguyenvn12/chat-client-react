@@ -6,10 +6,10 @@ import {
   ThemeProvider,
   Link as MuiLink,
   Alert,
-  Button,
-  ButtonGroup,
+  LinearProgress,
+  Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
 import ChatPanel from "./components/ChatPanel";
 import HeaderBar from "./components/HeaderBar";
@@ -21,7 +21,6 @@ import theme from "./theme";
 import { safeFilename, triggerDownload } from "./utils/download";
 import { extractPdfTextFromFile } from "./utils/pdfText";
 
-// ====== Constants ======
 // const DEFAULT_API = "http://localhost:8787/push";
 // const DEFAULT_SIO = "http://localhost:8787";
 const DEFAULT_API = "https://mh-december-international-editors.trycloudflare.com/push";
@@ -39,7 +38,7 @@ export default function App({
   exportUrl = DEFAULT_GAS_EXPORT,
 }) {
   // ====== UI State ======
-  const [chat, setChat] = useState([]); // [{id?, role: 'me'|'bot', text}]
+  const [chat, setChat] = useState([]); // [{ id?, role: 'me'|'bot', text }]
   const [prompt, setPrompt] = useState("");
   const [anchors, setAnchors] = useState("tôi đã nói|bạn đã nói|chatgpt đã nói|you said");
   const [reqId, setReqId] = useState("");
@@ -49,23 +48,40 @@ export default function App({
   const [progressOpen, setProgressOpen] = useState(false);
   const [docUrl, setDocUrl] = useState("");
 
-  // >>> NEW: files được quản lý ở cha
+  // Quản lý files ở cha
   const [files, setFiles] = useState([]); // Array<File>
+
+  // Job đang chờ và cờ UI
+  const [activeJobId, setActiveJobId] = useState(null);
+  const [waitingChat, setWaitingChat] = useState(false);
+  const isBusy = useMemo(() => waitingChat || loading, [waitingChat, loading]);
 
   // ====== Runtime refs ======
   const currentIdRef = useRef("");
   const lastMsgByIdRef = useRef({});
   const seenRef = useRef(new Set());
-  const flushTimersRef = useRef(new Map());
-  const bufferedTextRef = useRef(new Map());
+
+  // ====== Timers ======
+  const inactivityTimerRef = useRef(null); // 10s im lặng kể từ event cuối
+  const firstEventTimerRef = useRef(null); // 15s không có event đầu tiên
+  const hardCapTimerRef = useRef(null);    // 90s trần cho cả job
+
+  const SILENCE_MS = 10_000;
+  const FIRST_EVT_MS = 15_000;
+  const HARD_CAP_MS = 90_000;
 
   const isOk = status === "ready" || status.startsWith("SIO connected");
-  const showStatus = useCallback((text, ok = true) => setStatus(ok ? text || "ready" : text || "error"), []);
+  const showStatus = useCallback(
+    (text, ok = true) => setStatus(ok ? text || "ready" : text || "error"),
+    []
+  );
   const setCurrentId = (id) => (currentIdRef.current = id || "");
 
-  const collectChatAsText = () => chat.map((m) => `${m.role}: ${m.text}`)[chat.length - 1];
+  // Lấy dòng chat cuối cùng để export
+  const collectChatAsText = () =>
+    chat.length ? `${chat[chat.length - 1].role}: ${chat[chat.length - 1].text}` : "";
+
   const addMsg = (role, text, id) => setChat((prev) => [...prev, { role, text, id }]);
-  // const addMsg = (role, text, id) => setChat([{ role, text, id }]);
 
   const progress = useFakeProgress({
     onDone: () => {
@@ -76,26 +92,70 @@ export default function App({
     tickMs: 120,
   });
 
-  // ====== HTTP push helper (tự động chọn JSON hoặc FormData) ======
+  // ====== Timer helpers ======
+  const clearTimer = (tref) => {
+    if (tref.current) {
+      clearTimeout(tref.current);
+      tref.current = null;
+    }
+  };
+  const clearAllTimers = () => {
+    clearTimer(inactivityTimerRef);
+    clearTimer(firstEventTimerRef);
+    clearTimer(hardCapTimerRef);
+  };
+
+  const stopWaiting = (msg = "Đã ngừng chờ.") => {
+    clearAllTimers();
+    setWaitingChat(false);
+    setActiveJobId(null);
+    showStatus(msg, false);
+  };
+
+  // Reset 10s im lặng từ THỜI ĐIỂM NHẬN EVENT MỚI (của đúng job)
+  const armInactivityFromNow = () => {
+    clearTimer(inactivityTimerRef);
+    inactivityTimerRef.current = setTimeout(() => {
+      stopWaiting("Không có dữ liệu mới sau 10 giây. Đã ngừng chờ.");
+    }, SILENCE_MS);
+  };
+
+  // Sau khi gửi: nếu 15s không có bất kỳ event nào cho job => dừng chờ
+  const armFirstEventTimer = () => {
+    clearTimer(firstEventTimerRef);
+    firstEventTimerRef.current = setTimeout(() => {
+      stopWaiting("Không nhận được phản hồi ban đầu sau 15 giây.");
+    }, FIRST_EVT_MS);
+  };
+
+  // Giới hạn tổng thời gian 90s cho 1 job
+  const armHardCapTimer = () => {
+    clearTimer(hardCapTimerRef);
+    hardCapTimerRef.current = setTimeout(() => {
+      stopWaiting("Quá thời gian chờ tối đa (90 giây).");
+    }, HARD_CAP_MS);
+  };
+
+  // Cleanup timer khi unmount
+  useEffect(() => {
+    return () => clearAllTimers();
+  }, []);
+
+  // ====== HTTP push helper ======
   const callPush = async (payload, attachedFiles = []) => {
     setLoading(true);
     try {
       let res;
       if (attachedFiles && attachedFiles.length) {
-        // multipart/form-data
         const fd = new FormData();
         fd.append(
           "meta",
           new Blob([JSON.stringify(payload)], { type: "application/json" }),
           "meta.json"
         );
-        attachedFiles.forEach((f, i) => {
-          fd.append("files", f, f.name || `file-${i}`);
-        });
-
+        attachedFiles.forEach((f, i) => fd.append("files", f, f.name || `file-${i}`));
         res = await fetch(apiUrl, { method: "POST", body: fd });
       } else {
-        // application/json
         res = await fetch(apiUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -109,7 +169,11 @@ export default function App({
         body = await res.json().catch(() => ({}));
       } else {
         const txt = await res.text().catch(() => "");
-        try { body = JSON.parse(txt); } catch { body = { raw: txt }; }
+        try {
+          body = JSON.parse(txt);
+        } catch {
+          body = { raw: txt };
+        }
       }
 
       setRaw(JSON.stringify(body, null, 2));
@@ -135,10 +199,18 @@ export default function App({
   const onSend = async () => {
     const id = reqId.trim() || `job-${Date.now()}`;
     setCurrentId(id);
+    setActiveJobId(id);
+    setWaitingChat(true);
 
+    // Bật 2 phao an toàn (không arm inactivity ở đây)
+    armFirstEventTimer();
+    armHardCapTimer();
+
+    // Chuẩn bị attachments_text (PDF -> text)
     let attachments_text = [];
-    const pdfFiles = files.filter(f => f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf"));
-
+    const pdfFiles = files.filter(
+      (f) => f.type.includes("pdf") || f.name.toLowerCase().endsWith(".pdf")
+    );
     for (const f of pdfFiles) {
       try {
         const text = await extractPdfTextFromFile(f);
@@ -150,24 +222,42 @@ export default function App({
           text: text.slice(0, 100000),
         });
       } catch (e) {
-        attachments_text.push({ filename: f.name, mimetype: f.type, size: f.size, error: String(e) });
+        attachments_text.push({
+          filename: f.name,
+          mimetype: f.type,
+          size: f.size,
+          error: String(e),
+        });
       }
     }
 
-    const payload = { id, type: "ask_block", prompt, attachments_text: attachments_text?.[0]?.text };
-    await callPush(payload, []);  // gửi JSON, không gửi file
+    const payload = {
+      id,
+      type: "ask_block",
+      prompt,
+      attachments_text: attachments_text?.[0]?.text,
+    };
+    const result = await callPush(payload, []); // gửi JSON, không gửi file
+    if (!result?.ok) {
+      // HTTP fail => dừng chờ để không bị kẹt
+      stopWaiting("Gửi thất bại.");
+    }
     setFiles([]);
   };
 
+  // Không đụng waitingChat khi onGetLast để tránh ảnh hưởng job chat
   const onGetLast = async () => {
     const id = (reqId || ``).trim() || `last-${Date.now()}`;
     setCurrentId(id);
     const payload = {
       id,
       type: "get_last_after",
-      anchors: anchors.split("|").map((s) => s.trim()).filter(Boolean),
+      anchors: anchors
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean),
     };
-    await callPush(payload); // không đính kèm file
+    await callPush(payload);
   };
 
   const postText = async (url, text) => {
@@ -184,7 +274,6 @@ export default function App({
   // =========== 1) PDF Download ===========
   const onPdfDownload = async () => {
     const text = collectChatAsText();
-    console.log('check text', text);
     if (!text) {
       addMsg("bot", "Không có nội dung để xuất PDF.");
       return;
@@ -211,9 +300,10 @@ export default function App({
       } else if (ct.startsWith("text/")) {
         const txt = await res.text();
         setRaw(txt);
-        try { data = JSON.parse(txt); } catch { }
+        try {
+          data = JSON.parse(txt);
+        } catch { }
       } else if (ct.startsWith("application/pdf")) {
-        // Server trả thẳng PDF
         const blob = await res.blob();
         const fname = `${safeFilename((reqId || "export").trim() || "export")}-${new Date()
           .toISOString()
@@ -226,10 +316,11 @@ export default function App({
       } else {
         const txt = await res.text();
         setRaw(txt);
-        try { data = JSON.parse(txt); } catch { }
+        try {
+          data = JSON.parse(txt);
+        } catch { }
       }
 
-      // Chỉ xử lý PDF, bỏ qua docxUrl nếu có
       if (data?.pdf_base64) {
         const byteChars = atob(data.pdf_base64);
         const byteNums = new Array(byteChars.length);
@@ -248,7 +339,10 @@ export default function App({
         showStatus("Đã mở link PDF");
         progress.finish();
       } else {
-        showStatus("Không tìm thấy PDF trong phản hồi (pdf_base64/pdfUrl hoặc application/pdf).", false);
+        showStatus(
+          "Không tìm thấy PDF trong phản hồi (pdf_base64/pdfUrl hoặc application/pdf).",
+          false
+        );
         progress.finish();
       }
     } catch (e) {
@@ -286,10 +380,13 @@ export default function App({
         data = await res.json();
         setRaw(JSON.stringify(data, null, 2));
       } else {
-        // Với Google Apps Script đa phần sẽ trả JSON; nếu không, vẫn thử parse
         const txt = await res.text();
         setRaw(txt);
-        try { data = JSON.parse(txt); } catch { data = null; }
+        try {
+          data = JSON.parse(txt);
+        } catch {
+          data = null;
+        }
       }
 
       if (data?.googleDocUrl) {
@@ -308,16 +405,54 @@ export default function App({
     }
   };
 
+  // ====== Socket handler ======
   const onPushResult = useCallback((msg) => {
     try {
       lastMsgByIdRef.current[msg.id] = msg;
       setRaw(JSON.stringify(lastMsgByIdRef.current[msg.id], null, 2));
 
-      const key = msg.id + "::" + (msg.text || "");
+      const key = (msg.id || "no-id") + "::" + (msg.text || msg.delta || msg.event || "");
       if (seenRef.current.has(key)) return;
       seenRef.current.add(key);
       setTimeout(() => seenRef.current.delete(key), 60000);
 
+      // Xác định xem event này thuộc job đang chờ không
+      const isForActiveJob =
+        !!activeJobId &&
+        (
+          (msg.id && msg.id === activeJobId) ||
+          (!msg.id && (msg.text || msg.delta || msg.event))
+        );
+
+      // Event kết thúc / hoàn tất cho job đang chờ
+      const isFinalForActiveJob =
+        !!activeJobId &&
+        (msg.final === true || msg.event === "done" || msg.event === "end" || msg.status === "complete") &&
+        (!msg.id || msg.id === activeJobId);
+
+      // Event báo lỗi cho job đang chờ
+      const isErrorForActiveJob =
+        !!activeJobId &&
+        (msg.error || msg.level === "error" || msg.event === "error") &&
+        (!msg.id || msg.id === activeJobId);
+
+      // Nhận BẤT KỲ event hợp lệ đầu tiên cho job => hủy timer "first event" và reset 10s im lặng
+      if (isForActiveJob) {
+        clearTimer(firstEventTimerRef);
+        armInactivityFromNow();
+      }
+
+      // Hoàn tất => dừng chờ
+      if (isFinalForActiveJob) {
+        stopWaiting("Đã nhận đủ phản hồi.");
+      }
+
+      // Lỗi => dừng chờ
+      if (isErrorForActiveJob) {
+        stopWaiting(typeof msg.error === "string" ? msg.error : "Có lỗi khi xử lý job.");
+      }
+
+      // Cập nhật UI chat nếu có text
       if (msg.text) {
         const text = String(msg.text).replace("ChatGPT said", "VanGPT said");
         setChat((prev) => {
@@ -330,7 +465,7 @@ export default function App({
         });
       }
     } catch { }
-  }, []);
+  }, [activeJobId]);
 
   useSocketIO({
     sioUrl,
@@ -355,10 +490,21 @@ export default function App({
         <Container>
           <Stack spacing={3}>
             <HeaderBar apiUrl={apiUrl} isOk={isOk} />
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 5 }}>
+
+            {/* Thanh loading khi đang chờ chat */}
+            {waitingChat && (
+              <Box>
+                <LinearProgress />
+                <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                  Đang chờ phản hồi chat...
+                </Typography>
+              </Box>
+            )}
+
+            <Box sx={{ display: "flex", justifyContent: "space-between", gap: 5 }}>
               <ChatPanel chat={chat.slice(-1)} />
               <Toolbar
-                loading={loading}
+                loading={isBusy} // disable theo cả waitingChat
                 prompt={prompt}
                 setPrompt={setPrompt}
                 anchors={anchors}
@@ -367,12 +513,10 @@ export default function App({
                 setReqId={setReqId}
                 onSend={onSend}
                 onGetLast={onGetLast}
-                // vẫn giữ để tương thích, nhưng bạn có thể bỏ nếu không dùng
                 onPdfDownload={onPdfDownload}
                 onCreateDocLink={onCreateDocLink}
                 status={status}
                 raw={raw}
-                // >>> NEW: điều khiển files từ cha
                 files={files}
                 onFilesChange={setFiles}
                 accept="image/*,.pdf"
@@ -380,7 +524,6 @@ export default function App({
               />
             </Box>
 
-            {/* NEW: Hiển thị link DOCX sau khi progress hoàn tất */}
             {!!docUrl && !progressOpen && (
               <Alert severity="success">
                 Tài liệu Google Docs (DOCX) đã sẵn sàng:{" "}
@@ -389,8 +532,6 @@ export default function App({
                 </MuiLink>
               </Alert>
             )}
-
-
           </Stack>
         </Container>
 

@@ -48,11 +48,11 @@ export default function InterviewForm({ onSend, setPrompt, files, inputRef, load
             : "";
 
         const textPrompt = `
-        ${formData.cn2} 
-        Xuất trực tiếp package 
-        Case Number: ${formData.caseNumber} 
-        Ngày phỏng vấn: ${formattedDate} 
-        Ghi chú: ${formData.note}
+${formData.cn2} 
+Xuất trực tiếp package 
+Case Number: ${formData.caseNumber} 
+Ngày phỏng vấn: ${formattedDate} 
+Ghi chú: ${formData.note}
         `
         setPrompt(textPrompt.trim());
     };
