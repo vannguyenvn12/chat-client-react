@@ -6,12 +6,15 @@ export default function ChatPanel({ chat }) {
             elevation={6}
             sx={{
                 p: 2,
-                height: "60vh",
+                // height: "60vh",
                 overflow: "auto",
                 display: "flex",
                 flexDirection: "column",
+                height: '100vh',
+                flex: 1
             }}
         >
+            <Box>Cuộc đời quá ngắn để code</Box>
             <Stack spacing={1.5} flexGrow={1}>
                 {chat.map((m, i) => (
                     <Box

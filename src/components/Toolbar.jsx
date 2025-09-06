@@ -4,10 +4,14 @@ import {
     Box,
     Typography,
     TextField,
-    Grid,
     Button,
     Divider,
+    Chip,
 } from "@mui/material";
+import UploadRounded from "@mui/icons-material/UploadRounded";
+import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
+import * as React from "react";
+import InterviewForm from "./InterviewForm";
 
 export default function Toolbar({
     loading,
@@ -20,13 +24,47 @@ export default function Toolbar({
     onSend,
     onGetLast,
     onPdfDownload,
+    onCreateDocLink,
     status,
     raw,
+    // --- controlled by parent:
+    files = [],
+    onFilesChange,         // (files: File[])
+    accept = "*",
+    multiple = true,
 }) {
+    const inputRef = React.useRef(null);
+
+    const handleFilePick = (e) => {
+        const picked = Array.from(e.target.files || []);
+        const next = multiple ? [...files, ...picked] : picked.slice(0, 1);
+        onFilesChange?.(next);
+        // reset để cho phép chọn lại cùng 1 file
+        if (inputRef.current) inputRef.current.value = "";
+    };
+
+    const handleRemoveFile = (idx) => {
+        const next = files.filter((_, i) => i !== idx);
+        onFilesChange?.(next);
+    };
+
+    const handleClearAll = () => {
+        onFilesChange?.([]);
+        if (inputRef.current) inputRef.current.value = "";
+    };
+
     return (
-        <Paper elevation={6} sx={{ p: 3 }}>
+        <Paper elevation={6} sx={{ p: 3, flex: 1 }}>
+            <InterviewForm onSend={onSend} setPrompt={setPrompt} files={files} inputRef={inputRef} loading={loading}
+                accept={accept}
+                multiple={multiple}
+                handleFilePick={handleFilePick}
+                handleClearAll={handleClearAll}
+                handleRemoveFile={handleRemoveFile}
+                prompt={prompt}
+            />
             <Stack spacing={2}>
-                <Box>
+                <Box sx={{ opacity: '0' }}>
                     <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
                         Nội dung (prompt) — Enter để gửi, Shift+Enter xuống dòng
                     </Typography>
@@ -41,44 +79,18 @@ export default function Toolbar({
                         onKeyDown={(e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
-                                onSend();
+                                onSend(); // onSend đã tự biết lấy files từ cha
                             }
                         }}
                     />
                 </Box>
 
-                {/* <Grid container spacing={2}>
-                    <Grid item xs={8}>
-                        <TextField
-                            label='Anchors (get_last_after, phân tách “|”)'
-                            fullWidth
-                            value={anchors}
-                            disabled={loading}
-                            onChange={(e) => setAnchors(e.target.value)}
-                        />
-                    </Grid>
-                    <Grid item xs={4}>
-                        <TextField
-                            label="Request ID (tùy chọn)"
-                            placeholder="vd: job-001"
-                            fullWidth
-                            value={reqId}
-                            disabled={loading}
-                            onChange={(e) => setReqId(e.target.value)}
-                        />
-                    </Grid>
-                </Grid> */}
-
                 <Stack direction="row" spacing={1.5} alignItems="center">
-                    <Button variant="contained" disableElevation disabled={loading} onClick={onSend}>
+                    {/* <Button variant="contained" disableElevation disabled={loading} onClick={onSend}>
                         Gửi
-                    </Button>
-                    <Button variant="outlined" disabled={loading} onClick={onGetLast}>
-                        Lấy kết quả
-                    </Button>
-                    <Button variant="outlined" color="secondary" disabled={loading} onClick={onPdfDownload}>
-                        PDF download
-                    </Button>
+                    </Button> */}
+                    <Button variant="outlined" color="secondary" onClick={onPdfDownload} disabled={loading}>PDF Download</Button>
+                    <Button variant="outlined" color="secondary" onClick={onCreateDocLink} disabled={loading}>Google Docs</Button>
                     <Divider flexItem orientation="vertical" sx={{ mx: 0.5 }} />
                     <Typography variant="body2" sx={{ color: "text.secondary" }}>
                         {status}

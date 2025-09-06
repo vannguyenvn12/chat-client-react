@@ -23,7 +23,7 @@ export default function ProgressDialog({ open, progress = 0, note }) {
             }}
             PaperProps={{ sx: { minWidth: 360, p: 1.5 } }}
         >
-            <DialogTitle sx={{ pb: 1 }}>Đang tạo PDF…</DialogTitle>
+            <DialogTitle sx={{ pb: 1 }}>Đang tạo file...</DialogTitle>
             <DialogContent>
                 <Stack spacing={1.5}>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
