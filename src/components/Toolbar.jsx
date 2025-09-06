@@ -1,15 +1,14 @@
 import {
-    Paper,
-    Stack,
+    Alert,
     Box,
-    Typography,
-    TextField,
     Button,
     Divider,
-    Chip,
+    Link as MuiLink,
+    Paper,
+    Stack,
+    TextField,
+    Typography
 } from "@mui/material";
-import UploadRounded from "@mui/icons-material/UploadRounded";
-import DeleteOutlineRounded from "@mui/icons-material/DeleteOutlineRounded";
 import * as React from "react";
 import InterviewForm from "./InterviewForm";
 
@@ -32,6 +31,8 @@ export default function Toolbar({
     onFilesChange,         // (files: File[])
     accept = "*",
     multiple = true,
+    docUrl,
+    progressOpen
 }) {
     const inputRef = React.useRef(null);
 
@@ -85,6 +86,14 @@ export default function Toolbar({
                     />
                 </Box>
 
+                {!!docUrl && !progressOpen && (
+                    <Alert severity="success">
+                        Tài liệu Google Docs (DOCX) đã sẵn sàng:{" "}
+                        <MuiLink href={docUrl} target="_blank" rel="noopener">
+                            Mở/Tải DOCX
+                        </MuiLink>
+                    </Alert>
+                )}
                 <Stack direction="row" spacing={1.5} alignItems="center">
                     {/* <Button variant="contained" disableElevation disabled={loading} onClick={onSend}>
                         Gửi

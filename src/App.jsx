@@ -521,24 +521,18 @@ export default function App({
                 onFilesChange={setFiles}
                 accept="image/*,.pdf"
                 multiple={true}
+                docUrl={docUrl}
+                progressOpen={progressOpen}
               />
             </Box>
 
-            {!!docUrl && !progressOpen && (
-              <Alert severity="success">
-                Tài liệu Google Docs (DOCX) đã sẵn sàng:{" "}
-                <MuiLink href={docUrl} target="_blank" rel="noopener">
-                  Mở/Tải DOCX
-                </MuiLink>
-              </Alert>
-            )}
           </Stack>
         </Container>
 
         <ProgressDialog
           open={progressOpen}
           progress={progress.value}
-          note="Nghe nè bạn tôi ơi, vui lòng đứng yên, đừng đi đâu cả. Tôi đang tạo File cho bạn đấy!."
+          note="Để tạo file nhanh hơn, bạn vui lòng donate cho Văn Nguyễn qua STK: 999998887766 MB Bank."
         />
       </Box>
     </ThemeProvider>
