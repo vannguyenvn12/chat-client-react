@@ -27,7 +27,7 @@ export default function ProgressDialog({ open, progress = 0, note }) {
             <DialogTitle sx={{ pb: 1 }}>Đứng yên ở đó...</DialogTitle>
             <DialogContent>
                 <Stack spacing={1.5}>
-                    <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                    <Typography variant="h4" sx={{ opacity: 0.8 }}>
                         {note || "Vui lòng đợi một xíu, đừng đi đâu cả nhé!"}
                     </Typography>
                     <LinearProgress

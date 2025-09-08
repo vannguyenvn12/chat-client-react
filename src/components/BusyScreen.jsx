@@ -98,8 +98,7 @@ export default function BusyScreen({ onRetry }) {
                                 WebkitBackgroundClip: "text",
                                 WebkitTextFillColor: "transparent",
                             }}>
-                                {/* Đã có người sử dụng app */}
-                                Có làm thì mới có ăn
+                                Đã có người sử dụng app
                             </Typography>
                             <Typography sx={{ opacity: 0.8, mb: 2 }}>
                                 Ứng dụng hiện đang được dùng bởi một người khác. Vui lòng thử lại sau khi họ dùng xong.
