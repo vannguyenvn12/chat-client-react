@@ -20,11 +20,12 @@ import useSocketIO from "./hooks/useSocketIO";
 import theme from "./theme";
 import { safeFilename, triggerDownload } from "./utils/download";
 import { extractPdfTextFromFile } from "./utils/pdfText";
+import BusyScreen from "./components/BusyScreen";
 
-// const DEFAULT_API = "http://localhost:8787/push";
-// const DEFAULT_SIO = "http://localhost:8787";
-const DEFAULT_API = "https://mh-december-international-editors.trycloudflare.com/push";
-const DEFAULT_SIO = "https://mh-december-international-editors.trycloudflare.com";
+const DEFAULT_API = "http://localhost:8787/push";
+const DEFAULT_SIO = "http://localhost:8787";
+// const DEFAULT_API = "https://mh-december-international-editors.trycloudflare.com/push";
+// const DEFAULT_SIO = "https://mh-december-international-editors.trycloudflare.com";
 const DEFAULT_SIO_PATH = "/ws";
 const DEFAULT_GAS_EXPORT =
   "https://script.google.com/macros/s/AKfycbyS3h4Ci958a33mz2tWopo02R1jwQvZaUQrezmT6AzsaqkCc0NkLm4CxPJU_o2lklZo/exec";
@@ -56,10 +57,15 @@ export default function App({
   const [waitingChat, setWaitingChat] = useState(false);
   const isBusy = useMemo(() => waitingChat || loading, [waitingChat, loading]);
 
+  // === mới: cờ khi bị reject
+  const [busy, setBusy] = useState(false);
+
   // ====== Runtime refs ======
   const currentIdRef = useRef("");
   const lastMsgByIdRef = useRef({});
   const seenRef = useRef(new Set());
+  const clientIdRef = useRef(crypto.randomUUID()); // id ổn định cho phiên này
+  const getClientId = useCallback(() => clientIdRef.current, []);
 
   // ====== Timers ======
   const inactivityTimerRef = useRef(null); // 10s im lặng kể từ event cuối
@@ -135,6 +141,17 @@ export default function App({
       stopWaiting("Quá thời gian chờ tối đa (90 giây).");
     }, HARD_CAP_MS);
   };
+
+  // ====== Exclusive seat handlers ======
+  const onExclusiveAccepted = useCallback(() => {
+    setBusy(false);
+    showStatus("Đã giữ ghế.");
+  }, []);
+
+  const onExclusiveRejected = useCallback(() => {
+    setBusy(true);
+    showStatus("Ứng dụng đang có người dùng khác.", false);
+  }, []);
 
   // Cleanup timer khi unmount
   useEffect(() => {
@@ -472,7 +489,16 @@ export default function App({
     sioPath,
     onStatus: showStatus,
     onPushResult,
+    onExclusiveAccepted,
+    onExclusiveRejected,
+    getClientId: () => clientIdRef.current,
+    getClientId,
   });
+
+  if (busy) {
+    return <BusyScreen onRetry={() => window.location.reload()} />;
+  }
+
 
   // ====== Render ======
   return (

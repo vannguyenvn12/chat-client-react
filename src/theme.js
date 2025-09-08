@@ -1,5 +1,7 @@
 // Dark theme nhẹ nhàng
 import { createTheme } from "@mui/material/styles";
+import "@fontsource/poppins/700.css";
+
 
 const theme = createTheme({
     palette: {

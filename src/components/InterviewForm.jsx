@@ -53,7 +53,7 @@ Xuất trực tiếp package
 Case Number: ${formData.caseNumber} 
 Ngày phỏng vấn: ${formattedDate} 
 Ghi chú: ${formData.note}
-        `
+        `.replace('undefined', '')
         setPrompt(textPrompt.trim());
     };
 

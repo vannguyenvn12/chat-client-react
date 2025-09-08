@@ -1,36 +1,73 @@
 import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
-/**
- * Hook quản lý Socket.IO và phát sự kiện push_result lên UI.
- * onStatus: (text: string, ok?: boolean) => void
- * onPushResult: (msg: any) => void
- */
-export default function useSocketIO({ sioUrl, sioPath, onStatus, onPushResult }) {
+export default function useSocketIO({
+    sioUrl,
+    sioPath,
+    onStatus,
+    onPushResult,
+    onExclusiveAccepted,
+    onExclusiveRejected,
+    getClientId,
+}) {
     const socketRef = useRef(null);
+
+    // giữ callback mới nhất để tránh stale mà không làm re-connect
+    const statusRef = useRef(onStatus);
+    const pushRef = useRef(onPushResult);
+    const acceptRef = useRef(onExclusiveAccepted);
+    const rejectRef = useRef(onExclusiveRejected);
+    const getIdRef = useRef(getClientId);
+
+    useEffect(() => { statusRef.current = onStatus; }, [onStatus]);
+    useEffect(() => { pushRef.current = onPushResult; }, [onPushResult]);
+    useEffect(() => { acceptRef.current = onExclusiveAccepted; }, [onExclusiveAccepted]);
+    useEffect(() => { rejectRef.current = onExclusiveRejected; }, [onExclusiveRejected]);
+    useEffect(() => { getIdRef.current = getClientId; }, [getClientId]);
 
     useEffect(() => {
         try {
-            const socket = io(sioUrl, { path: sioPath, transports: ["websocket"] });
+            const socket = io(sioUrl, {
+                path: sioPath,
+                transports: ["websocket"],
+                // optional: tránh log trùng trong StrictMode dev
+                // reconnection: true,
+            });
             socketRef.current = socket;
 
-            socket.on("connect", () => onStatus?.("SIO connected", true));
+            socket.on("connect", () => {
+                statusRef.current?.("SIO connected", true);
+                const clientId = (getIdRef.current?.() || socket.id);
+                socket.emit("exclusive:claim", { clientId });
+            });
+
             socket.on("connect_error", (err) =>
-                onStatus?.(`SIO connect_error: ${err?.message || err}`, false)
+                statusRef.current?.(`SIO connect_error: ${err?.message || err}`, false)
             );
-            socket.on("disconnect", () => onStatus?.("SIO disconnected", false));
-            socket.on("push_result", (msg) => onPushResult?.(msg));
+
+            socket.on("disconnect", (reason) =>
+                statusRef.current?.(`SIO disconnected${reason ? `: ${reason}` : ""}`, false)
+            );
+
+            socket.on("push_result", (msg) => pushRef.current?.(msg));
+
+            socket.on("exclusive:accept", (payload) => acceptRef.current?.(payload || {}));
+            socket.on("exclusive:reject", (payload) => rejectRef.current?.(payload || {}));
+            socket.on("exclusive:vacated", () => {
+                const clientId = (getIdRef.current?.() || socket.id);
+                socket.emit("exclusive:claim", { clientId });
+            });
 
             return () => {
                 try {
-                    socket.off("push_result");
+                    socket.removeAllListeners();
                     socket.disconnect();
                 } catch { }
             };
         } catch (e) {
-            onStatus?.(String(e), false);
+            statusRef.current?.(String(e), false);
         }
-    }, [sioUrl, sioPath, onStatus, onPushResult]);
+    }, [sioUrl, sioPath]);
 
     return socketRef;
 }
