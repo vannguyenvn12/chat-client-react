@@ -131,6 +131,18 @@ export default function BusyScreen({ onRetry }) {
                             >
                                 Thử lại
                             </Button>
+                            <Button
+                                size="large"
+                                variant="contained"
+                                onClick={onRetry}
+                                startIcon={<HourglassBottomIcon />}
+                                sx={{
+                                    borderRadius: 999,
+                                    px: 3,
+                                }}
+                            >
+                                Exit All
+                            </Button>
                             <Tooltip title="Tải lại trang">
                                 <Button
                                     size="large"

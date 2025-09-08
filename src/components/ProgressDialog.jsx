@@ -24,10 +24,10 @@ export default function ProgressDialog({ open, progress = 0, note }) {
             }}
             PaperProps={{ sx: { minWidth: 360, p: 1.5 } }}
         >
-            <DialogTitle sx={{ pb: 1 }}>Đứng yên ở đó...</DialogTitle>
+            <DialogTitle sx={{ pb: 1, fontSize: '20px' }}>Đứng yên ở đó...</DialogTitle>
             <DialogContent>
                 <Stack spacing={1.5}>
-                    <Typography variant="h4" sx={{ opacity: 0.8 }}>
+                    <Typography variant="body2" sx={{ opacity: 0.8, fontSize: '16px' }}>
                         {note || "Vui lòng đợi một xíu, đừng đi đâu cả nhé!"}
                     </Typography>
                     <LinearProgress
