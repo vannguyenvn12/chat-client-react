@@ -32,6 +32,18 @@ const DEFAULT_GAS_EXPORT =
 
 const DEFAULT_MESSAGES_API = "http://localhost:8787/conversations/1/messages";
 
+function generateUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // fallback: tự sinh UUID v4
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 export default function App({
   apiUrl = DEFAULT_API,
   sioUrl = DEFAULT_SIO,
@@ -64,7 +76,7 @@ export default function App({
   const currentIdRef = useRef("");
   const lastMsgByIdRef = useRef({});
   const seenRef = useRef(new Set());
-  const clientIdRef = useRef(crypto.randomUUID()); // id ổn định cho phiên này
+  const clientIdRef = useRef(generateUUID()); // id ổn định cho phiên này
   const getClientId = useCallback(() => clientIdRef.current, []);
 
   // ====== Timers ======
