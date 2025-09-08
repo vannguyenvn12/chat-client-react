@@ -15,12 +15,13 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import dayjs from "dayjs";
 import { DeleteOutlineRounded, UploadRounded } from "@mui/icons-material";
+import { DEFAULT_API } from "../App";
 
 export default function InterviewForm({ onSend, setPrompt, files, inputRef, loading,
     accept,
     multiple,
     handleFilePick,
-    handleClearAll, handleRemoveFile, prompt }) {
+    handleClearAll, handleRemoveFile, prompt, setChat }) {
     const [formData, setFormData] = useState({
         cn2: "CN2: Xây dựng bộ câu hỏi mới",
         caseNumber: "2025F31234",
@@ -38,9 +39,10 @@ export default function InterviewForm({ onSend, setPrompt, files, inputRef, load
         setFormData((prev) => ({ ...prev, interviewDate: newValue }));
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         console.log("Form Data:", formData);
+
 
         // format ngày dd/MM/yyyy
         const formattedDate = formData.interviewDate
@@ -57,11 +59,21 @@ Ghi chú: ${formData.note}
         setPrompt(textPrompt.trim());
     };
 
+    const handleCreateNewChat = async () => {
+        const res = await fetch(`${DEFAULT_API}/new`, {
+            method: "POST",
+        });
+        const data = await res.json();
+        setChat([]);
+    }
+
     useEffect(() => {
         if (prompt && !prompt.includes('undefined')) {
             onSend()
         }
     }, [prompt])
+
+
 
 
     return (
@@ -174,6 +186,9 @@ Ghi chú: ${formData.note}
 
             <Button type="submit" variant="contained" >
                 Submit
+            </Button>
+            <Button variant="outlined" onClick={handleCreateNewChat}>
+                Tạo chat mới
             </Button>
         </Box>
     );

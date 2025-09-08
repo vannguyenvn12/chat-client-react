@@ -30,6 +30,7 @@ export default function useSocketIO({
             const socket = io(sioUrl, {
                 path: sioPath,
                 transports: ["websocket"],
+                withCredentials: true,
                 // optional: tránh log trùng trong StrictMode dev
                 // reconnection: true,
             });

@@ -32,7 +32,8 @@ export default function Toolbar({
     accept = "*",
     multiple = true,
     docUrl,
-    progressOpen
+    progressOpen,
+    setChat
 }) {
     const inputRef = React.useRef(null);
 
@@ -63,6 +64,7 @@ export default function Toolbar({
                 handleClearAll={handleClearAll}
                 handleRemoveFile={handleRemoveFile}
                 prompt={prompt}
+                setChat={setChat}
             />
             <Stack spacing={2}>
                 <Box sx={{ opacity: '0' }}>

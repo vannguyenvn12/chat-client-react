@@ -22,10 +22,10 @@ import { safeFilename, triggerDownload } from "./utils/download";
 import { extractPdfTextFromFile } from "./utils/pdfText";
 import BusyScreen from "./components/BusyScreen";
 
-const DEFAULT_API = "http://localhost:8787/push";
-const DEFAULT_SIO = "http://localhost:8787";
-// const DEFAULT_API = "https://mh-december-international-editors.trycloudflare.com/push";
-// const DEFAULT_SIO = "https://mh-december-international-editors.trycloudflare.com";
+// export const DEFAULT_API = "http://localhost:8787/push";
+// const DEFAULT_SIO = "http://localhost:8787";
+export const DEFAULT_API = "https://api-chat.vannguyenv12.com/push";
+const DEFAULT_SIO = "https://api-chat.vannguyenv12.com";
 const DEFAULT_SIO_PATH = "/ws";
 const DEFAULT_GAS_EXPORT =
   "https://script.google.com/macros/s/AKfycbyS3h4Ci958a33mz2tWopo02R1jwQvZaUQrezmT6AzsaqkCc0NkLm4CxPJU_o2lklZo/exec";
@@ -534,6 +534,7 @@ export default function App({
                 prompt={prompt}
                 setPrompt={setPrompt}
                 anchors={anchors}
+                setChat={setChat}
                 setAnchors={setAnchors}
                 reqId={reqId}
                 setReqId={setReqId}
