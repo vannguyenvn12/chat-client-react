@@ -21,7 +21,7 @@ export default function InterviewForm({ onSend, setPrompt, files, inputRef, load
     accept,
     multiple,
     handleFilePick,
-    handleClearAll, handleRemoveFile, prompt, setChat }) {
+    handleClearAll, handleRemoveFile, prompt, chat, setChat }) {
     const [formData, setFormData] = useState({
         cn2: "CN2: Xây dựng bộ câu hỏi mới",
         caseNumber: "2025F31234",
@@ -184,11 +184,11 @@ Ghi chú: ${formData.note}
                 fullWidth
             />
 
-            <Button type="submit" variant="contained" >
+            <Button disabled={chat.length !== 0} type="submit" variant="contained" >
                 Submit
             </Button>
-            <Button variant="outlined" onClick={handleCreateNewChat}>
-                Tạo chat mới
+            <Button disabled={chat.length === 0} variant="outlined" onClick={handleCreateNewChat}>
+                Tạo tiến trình mới
             </Button>
         </Box>
     );

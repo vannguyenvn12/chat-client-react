@@ -67,7 +67,8 @@ export default function App({
   // Job đang chờ và cờ UI
   const [activeJobId, setActiveJobId] = useState(null);
   const [waitingChat, setWaitingChat] = useState(false);
-  const isBusy = useMemo(() => waitingChat || loading, [waitingChat, loading]);
+  const [waitChat, setWaitChat] = useState(false);
+  const isBusy = useMemo(() => waitChat || loading, [waitChat, loading]);
 
   // === mới: cờ khi bị reject
   const [busy, setBusy] = useState(false);
@@ -169,6 +170,17 @@ export default function App({
   useEffect(() => {
     return () => clearAllTimers();
   }, []);
+
+  useEffect(() => {
+    console.log(">> chat", chat.length)
+    if (chat.length === 0) setWaitChat(false)
+    else if (chat.length >= 3) {
+      setWaitChat(false);
+    }
+    else {
+      setWaitChat(true);
+    }
+  }, [chat])
 
   // ====== HTTP push helper ======
   const callPush = async (payload, attachedFiles = []) => {
@@ -530,7 +542,7 @@ export default function App({
             <HeaderBar apiUrl={apiUrl} isOk={isOk} />
 
             {/* Thanh loading khi đang chờ chat */}
-            {waitingChat && (
+            {waitChat && (
               <Box>
                 <LinearProgress />
                 <Typography variant="caption" sx={{ opacity: 0.7 }}>
@@ -562,6 +574,7 @@ export default function App({
                 multiple={true}
                 docUrl={docUrl}
                 progressOpen={progressOpen}
+                chat={chat}
               />
             </Box>
 

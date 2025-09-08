@@ -12,6 +12,7 @@ export default function ChatPanel({ chat }) {
                 flexDirection: "column",
                 height: '100vh',
                 flex: 1,
+                display: 'none'
             }}
         >
             <Box>Cuộc đời quá ngắn để code</Box>
