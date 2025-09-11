@@ -584,7 +584,7 @@ export default function App({
         <ProgressDialog
           open={progressOpen}
           progress={progress.value}
-          note="Để tạo file nhanh hơn, bạn vui lòng donate cho Văn Nguyễn qua STK: 999998887766 MB Bank."
+          note="Hệ thống đang tạo file cho bạn, vui lòng giữ nguyên màn hình."
         />
       </Box>
     </ThemeProvider>
